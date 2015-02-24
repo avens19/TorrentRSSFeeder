@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Text;
 using System.Threading.Tasks;
 using System.Web;
 using System.Web.Http;
@@ -13,6 +14,7 @@ using System.Xml.Serialization;
 using System.Xml.XPath;
 using HtmlAgilityPack;
 using TorrentRSSFeeder.Models;
+using TorrentRSSFeeder.Helpers;
 
 namespace TorrentRSSFeeder.Controllers
 {
@@ -106,31 +108,87 @@ namespace TorrentRSSFeeder.Controllers
                 }
             }
 
-            MemoryStream ms = new MemoryStream();
-            using (StreamWriter sw = new StreamWriter(ms))
+            return new HttpResponseMessage
             {
-                new XmlSerializer(typeof (rss)).Serialize(sw,
-                    new rss
-                    {
-                        channel = new channel
-                        {
-                            items = items.ToArray()
-                        }
-                    });
-
-                ms.Position = 0;
-
-                using (StreamReader sr = new StreamReader(ms))
+                Content = new StringContent(new rss
                 {
-                    return new HttpResponseMessage
+                    channel = new channel
                     {
-                        Content = new StringContent(sr.ReadToEnd()),
-                        StatusCode = HttpStatusCode.OK
-                    };
+                        items = items.ToArray()
+                    }
+                }.SerializeObject<rss>(),
+                Encoding.UTF8,
+                "application/rss+xml"),
+                StatusCode = HttpStatusCode.OK
+            };
+        }
+
+        [HttpGet]
+        [Route("eztv")]
+        public async Task<HttpResponseMessage> EZTV()
+        {
+            string url = ConfigurationManager.AppSettings["EZTVURL"];
+            string xPath = ConfigurationManager.AppSettings["EZTVXpath"];
+
+            HttpWebRequest request = WebRequest.CreateHttp(url);
+
+            request.Accept = "application/xml";
+
+            List<item> items = new List<item>();
+
+            using (var stream = (await request.GetResponseAsync()).GetResponseStream())
+            {
+                if (stream == null)
+                    return null;
+
+                HtmlDocument doc = new HtmlDocument();
+                doc.Load(stream);
+                var nodes = doc.DocumentNode.SelectNodes(xPath);
+                foreach (HtmlNode tr in nodes)
+                {
+                    var description = tr.Elements("td").ToArray()[1].Element("a").InnerText;
+                    var magnet = tr.Elements("td").ToArray()[2].Element("a").GetAttributeValue("href", null);
+                    var time = DateTime.UtcNow;
+                    var timeString = tr.Elements("td").ToArray()[3].InnerText.Trim();
+                    var timeStrings = timeString.Split(' ');
+                    foreach (var ts in timeStrings)
+                    {
+                        if (ts.IndexOf("d", StringComparison.CurrentCultureIgnoreCase) > -1)
+                        {
+                            time = time.AddDays(int.Parse(ts.Substring(0, ts.Length - 1))*-1);
+                        }
+                        else if (ts.IndexOf("h", StringComparison.CurrentCultureIgnoreCase) > -1)
+                        {
+                            time = time.AddHours(int.Parse(ts.Substring(0, ts.Length - 1)) * -1);
+                        }
+                        else if (ts.IndexOf("m", StringComparison.CurrentCultureIgnoreCase) > -1)
+                        {
+                            time = time.AddMinutes(int.Parse(ts.Substring(0, ts.Length - 1)) * -1);
+                        }
+                    }
+                    items.Add(new item
+                    {
+                        description = description,
+                        link = magnet,
+                        pubDate = time.ToString("r"),
+                        title = description
+                    });
                 }
             }
 
-
+            return new HttpResponseMessage
+            {
+                Content = new StringContent(new rss
+                {
+                    channel = new channel
+                    {
+                        items = items.ToArray()
+                    }
+                }.SerializeObject<rss>(),
+                Encoding.UTF8,
+                "application/rss+xml"),
+                StatusCode = HttpStatusCode.OK
+            };
         }
     }
 }
