@@ -165,6 +165,10 @@ namespace TorrentRSSFeeder.Controllers
                         {
                             time = time.AddMinutes(int.Parse(ts.Substring(0, ts.Length - 1)) * -1);
                         }
+                        else if (ts.IndexOf("s", StringComparison.CurrentCultureIgnoreCase) > -1)
+                        {
+                            time = time.AddSeconds(int.Parse(ts.Substring(0, ts.Length - 1)) * -1);
+                        }
                     }
                     items.Add(new item
                     {
